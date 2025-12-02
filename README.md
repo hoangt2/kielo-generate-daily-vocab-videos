@@ -49,7 +49,7 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
 
 3. **Install dependencies**
    ```bash
-   pip install google-generativeai google-auth gspread gspread-formatting python-dotenv
+   pip install -r requirements.txt
    ```
 
 4. **Set up Google Cloud credentials**

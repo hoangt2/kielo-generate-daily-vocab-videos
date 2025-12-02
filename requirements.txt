@@ -1,0 +1,5 @@
+google-generativeai
+google-auth
+gspread
+gspread-formatting
+python-dotenv
