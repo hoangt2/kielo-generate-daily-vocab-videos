@@ -19,7 +19,7 @@ GOOGLE_SHEETS_CREDENTIALS_FILE = os.getenv("GOOGLE_SHEETS_CREDENTIALS_FILE", "cr
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Daily Vocabulary")
 # Update column index since 'Starting Date' is removed and 'Date Added' is now column 1 ('A')
 FINNISH_WORD_COLUMN_INDEX = 2 # 'B' column for 'Finnish Word' in 1-based index
-VOCAB_COUNT=int(os.getenv("VOCAB_COUNT", 10)) # Default to 10 words if not set
+VOCAB_COUNT=int(os.getenv("VOCAB_COUNT", 20)) # Default to 20 words if not set
 
 def setup_gemini():
     """Initialize Gemini API"""
@@ -106,11 +106,12 @@ def generate_finnish_vocabulary(model, existing_words, count=10):
     """
     new_vocabulary = []
     attempts = 0
-    max_attempts = 5  # Prevent infinite loops
     
-    while len(new_vocabulary) < count and attempts < max_attempts:
+    # Keep iterating until we have exactly the requested number of words
+    while len(new_vocabulary) < count:
         needed = count - len(new_vocabulary)
-        print(f"Generating {needed} words (Attempt {attempts + 1}/{max_attempts})...")
+        attempts += 1
+        print(f"Generating {needed} more words (Attempt {attempts}, have {len(new_vocabulary)}/{count})...")
 
         if existing_words:
             # Convert set to list and take a sample to avoid huge prompts, 
@@ -182,29 +183,151 @@ def generate_video_prompt(model, word_data):
     """Generate a video generation prompt for the vocabulary word"""
     prompt = f"""
     You are a creative TikTok scriptwriter. Your task is to generate a video prompt for Finnish word of the day. 
-    Create a simple scene to illustrate for the word: {word_data['finnish_word']} which means "{word_data['english_translation']}". 
-    Characters speak clearly in Finnish and grammatically correct. 
+    The word is: {word_data['finnish_word']} which means "{word_data['english_translation']}". 
     
-    The short scene should be about common daily life situation and easy to illustrate.
-    Make the conversation sounds natural. 
-    The main word just need to appear once in the speech, no need to repeat it. 
-    The conversation should begin right in the first second to get the audience attention.
-
-    * Strictly no text or subtitles included in the video. 
+    IMPORTANT - Choose the BEST illustration approach to maximize visual impact:
     
-    *Also Include the following details in your response:
-    Scene Duration: 8 seconds
-
-    Illustration style:
-    Use a warm, modern flat-vector illustration style with soft pastel colors, clean lines, and simple but expressive facial features. 
-    Think of a style that could be used in educational flashcards or language-learning apps—playful yet clear, conveying both the action and the meaning.
-
-    Audio:
-    Characters say their lines exactly as in the scene description and match with their actions and they speak Finnish in Helsinki region accent
+    **STEP 1: Evaluate if the word can be illustrated visually**
+    Ask yourself: Can this word be shown through a clear, engaging visual image or action?
+    
+    Examples that work well visually:
+    - Concrete objects: apple, car, house, book
+    - Actions/verbs: jump, run, swim, dance, eat, sleep
+    - Visual states: happy (smiling face), tired (yawning), cold (shivering), hot (sweating)
+    - Visual adjectives: big, small, colorful, clean, dirty
+    - Places: park, library, kitchen, beach
+    
+    **STEP 2: Choose your approach**
+    
+    ✅ **USE VISUAL DESCRIPTION** if the word can be effectively shown through visuals:
+       - Create a detailed visual description showing the object/action/state
+       - Focus on visual elements: colors, textures, setting, environment, body language, expressions
+       - A character can perform the action or demonstrate the state while saying the word
+       - Keep it simple, dynamic, and visually focused
+       - Example: For "jump" → show a character mid-jump with dynamic motion
+       - Example: For "happy" → show a character with a bright smile and joyful expression
+    
+    ❌ **USE SCENE/CONVERSATION** only if the word needs context to be understood:
+       - Use this for complex emotions (nostalgia, anxiety), abstract concepts (possibility, freedom), or social situations
+       - Create a short scene or conversation that illustrates the meaning through context
+       - Use characters in a daily life situation that demonstrates the concept
+       - The dialogue should naturally include the word in context
+       - Make the scene relatable and easy to understand
+    
+    General Guidelines:
+    - Characters speak clearly in Finnish and grammatically correct
+    - The scene should be about common daily life situations and easy to illustrate
+    - Make any conversation sound natural
+    - The main word only needs to appear once in the speech, no need to repeat it
+    - The scene should begin right in the first second to get the audience attention
+    - Strictly no text or subtitles included in the video
+    - **Prioritize visual descriptions whenever possible** - they create better, more engaging content!
+    
+    **YOUR RESPONSE MUST START WITH THE ILLUSTRATION STYLE DESCRIPTION**, followed by the scene details and audio.
+    
+    REQUIRED FORMAT:
+    
+    **Illustration Style:**
+    Use a warm, modern flat-vector illustration style with soft pastel colors, clean lines, and simple but expressive facial features. Think of a style that could be used in educational flashcards or language-learning apps—playful yet clear, conveying both the action and the meaning.
+    
+    **Scene (8 seconds):**
+    [Describe the visual scene here in detail]
+    
+    **Audio:**
+    [Describe what characters say in Finnish with Helsinki region accent, matching their actions]
     """
     
     response = model.generate_content(prompt)
     return response.text.strip()
+
+def check_and_fix_finnish_speech(model, video_prompt, word_data, max_iterations=3):
+    """Check and fix Finnish grammar and naturalness in the video prompt.
+    
+    Args:
+        model: Gemini model instance
+        video_prompt: The generated video prompt containing Finnish speech
+        word_data: Dictionary with word information
+        max_iterations: Maximum number of fix attempts
+        
+    Returns:
+        Corrected video prompt
+    """
+    finnish_word = word_data['finnish_word']
+    english_translation = word_data['english_translation']
+    
+    print(f"    Checking Finnish grammar and naturalness...")
+    
+    for iteration in range(max_iterations):
+        check_prompt = f"""
+        You are a Finnish language expert specializing in natural, conversational Finnish. 
+        
+        Analyze the following video script for the Finnish word "{finnish_word}" (meaning "{english_translation}").
+        
+        VIDEO SCRIPT:
+        {video_prompt}
+        
+        **CRITICAL INSTRUCTION:** Make MINIMAL changes. Only fix actual grammatical errors. Preserve all original text, structure, dialogue, and content.
+        
+        Check for:
+        1. **Grammar errors** (case endings, verb conjugations, word order, etc.)
+        2. **Naturalness** (Does it sound like how a native Finnish speaker would actually talk in daily conversation?)
+        3. **Appropriate use of the target word** in context
+        4. **Helsinki region accent compatibility** (avoid overly formal or archaic expressions)
+        
+        **When providing corrections:**
+        - Keep the ENTIRE original text structure (illustration style, scene description, audio sections)
+        - Only change the specific words/phrases that have grammatical errors
+        - Do NOT rewrite or rephrase content that is already correct
+        - Do NOT change the meaning, tone, or creative elements
+        - Preserve character names, actions, and scene descriptions exactly
+        
+        Respond in JSON format with:
+        {{
+            "is_correct": true/false,
+            "issues": ["list of specific issues found, if any"],
+            "corrected_script": "the FULL script with ONLY grammatical errors fixed (only if is_correct is false)",
+            "explanation": "brief explanation of what specific words/phrases were fixed (only if corrections were made)"
+        }}
+        
+        If the Finnish is already perfect, set is_correct to true and leave corrected_script empty.
+        """
+        
+        try:
+            response = model.generate_content(check_prompt)
+            text = response.text
+            
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0]
+            
+            result = json.loads(text.strip())
+            
+            if result.get('is_correct', False):
+                print(f"    ✅ Finnish speech verified (attempt {iteration + 1}/{max_iterations})")
+                return video_prompt
+            else:
+                issues = result.get('issues', [])
+                print(f"    ⚠️ Issues found (attempt {iteration + 1}/{max_iterations}):")
+                for issue in issues:
+                    print(f"       - {issue}")
+                
+                corrected_script = result.get('corrected_script', '')
+                if corrected_script:
+                    video_prompt = corrected_script
+                    explanation = result.get('explanation', '')
+                    if explanation:
+                        print(f"    🔧 Fixed: {explanation}")
+                else:
+                    print(f"    ⚠️ No correction provided, using original script")
+                    break
+                    
+        except Exception as e:
+            print(f"    ❌ Error during grammar check (attempt {iteration + 1}/{max_iterations}): {e}")
+            return video_prompt
+    
+    print(f"    ✅ Finnish speech finalized after {max_iterations} checks")
+    return video_prompt
 
 def generate_video_caption(model, word_data):
     """Generate an engaging TikTok caption for the vocabulary word."""
@@ -342,14 +465,18 @@ def main():
     print("Generating video prompts and captions...") 
     for item in vocabulary:
         word = item.get('finnish_word', 'Unknown Word')
-        print(f"  Processing prompt for: {word}")
+        print(f"  Processing prompt for: {word}")
         
         # 1. Generate Video Prompt
         video_prompt = generate_video_prompt(model, item)
+        
+        # 2. Check and Fix Finnish Grammar/Naturalness
+        print(f"  Checking Finnish speech for: {word}")
+        video_prompt = check_and_fix_finnish_speech(model, video_prompt, item)
         item['video_prompt'] = video_prompt
         
-        # 2. Generate Video Caption
-        print(f"  Processing caption for: {word}")
+        # 3. Generate Video Caption
+        print(f"  Processing caption for: {word}")
         video_caption = generate_video_caption(model, item)
         item['video_caption'] = video_caption 
         
