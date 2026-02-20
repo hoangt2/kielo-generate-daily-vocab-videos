@@ -3,3 +3,5 @@ google-auth
 gspread
 gspread-formatting
 python-dotenv
+requests
+beautifulsoup4

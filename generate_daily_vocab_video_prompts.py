@@ -6,7 +6,11 @@ from gspread_formatting import set_row_height, cellFormat, format_cell_range
 from datetime import datetime
 import json
 import os
+import random
+from typing import Any
 from dotenv import load_dotenv
+import requests
+from bs4 import BeautifulSoup
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +24,172 @@ SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Daily Vocabulary")
 # Update column index since 'Starting Date' is removed and 'Date Added' is now column 1 ('A')
 FINNISH_WORD_COLUMN_INDEX = 2 # 'B' column for 'Finnish Word' in 1-based index
 VOCAB_COUNT=int(os.getenv("VOCAB_COUNT", 20)) # Default to 20 words if not set
+VOCAB_SOURCE=os.getenv("VOCAB_SOURCE", "common1000").strip().lower()  # common1000 | gemini
+COMMON_WORDS_URL=os.getenv(
+    "COMMON_WORDS_URL",
+    "https://1000mostcommonwords.com/1000-most-common-finnish-words/",
+).strip()
+COMMON_WORDS_CACHE_FILE=os.getenv("COMMON_WORDS_CACHE_FILE", "finnish_common_1000.json").strip()
+ENRICH_BATCH_SIZE=int(os.getenv("ENRICH_BATCH_SIZE", 25))
+
+
+def _strip_markdown_code_fences(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        # Remove opening fence line: ``` or ```json
+        if lines:
+            lines = lines[1:]
+        # Remove closing fence line if present
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return text
+
+
+def _json_loads_loose(text: str) -> Any:
+    """
+    Parse JSON from model output that may include code fences or extra text.
+    """
+    cleaned = _strip_markdown_code_fences(text)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Fallback: try to find the first JSON array/object region.
+        first_brace = cleaned.find("{")
+        first_bracket = cleaned.find("[")
+        if first_bracket == -1 and first_brace == -1:
+            raise
+        if first_bracket != -1 and (first_brace == -1 or first_bracket < first_brace):
+            start = first_bracket
+            end = cleaned.rfind("]")
+        else:
+            start = first_brace
+            end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        return json.loads(cleaned[start : end + 1])
+
+
+def _load_cached_common_words(cache_file: str) -> tuple[datetime | None, list[dict[str, str]] | None]:
+    if not os.path.exists(cache_file):
+        return None, None
+    try:
+        with open(cache_file, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        fetched_at_raw = payload.get("fetched_at")
+        words = payload.get("words")
+        if not isinstance(words, list):
+            return None, None
+        fetched_at = None
+        if isinstance(fetched_at_raw, str):
+            try:
+                fetched_at = datetime.fromisoformat(fetched_at_raw.replace("Z", "+00:00"))
+            except ValueError:
+                fetched_at = None
+        # Only keep well-formed items
+        cleaned: list[dict[str, str]] = []
+        for item in words:
+            if not isinstance(item, dict):
+                continue
+            fi = str(item.get("finnish_word", "")).strip()
+            en = str(item.get("english_translation", "")).strip()
+            if fi and en:
+                cleaned.append({"finnish_word": fi, "english_translation": en})
+        return fetched_at, cleaned or None
+    except Exception:
+        return None, None
+
+
+def scrape_common_finnish_words(url: str) -> list[dict[str, str]]:
+    """
+    Scrape the "1000 most common Finnish words" table.
+    Returns list of objects: {finnish_word, english_translation}
+    """
+    resp = requests.get(
+        url,
+        timeout=30,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        },
+    )
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    tables = soup.find_all("table")
+    target_table = None
+
+    for table in tables:
+        first_row = table.find("tr")
+        if not first_row:
+            continue
+        cells = [c.get_text(" ", strip=True).lower() for c in first_row.find_all(["td", "th"])]
+        if len(cells) >= 3 and "finnish" in cells[1] and "english" in cells[2]:
+            target_table = table
+            break
+
+    if target_table is None:
+        raise RuntimeError("Could not find Finnish/English word table on the page.")
+
+    words: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    for row in target_table.find_all("tr")[1:]:
+        tds = row.find_all("td")
+        if len(tds) < 3:
+            continue
+        finnish_word = tds[1].get_text(" ", strip=True)
+        english_translation = tds[2].get_text(" ", strip=True)
+        key = finnish_word.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        words.append(
+            {
+                "finnish_word": finnish_word.strip(),
+                "english_translation": english_translation.strip(),
+            }
+        )
+
+    if not words:
+        raise RuntimeError("Scraped word list was empty.")
+
+    return words
+
+
+def get_common_finnish_words(
+    *,
+    url: str = COMMON_WORDS_URL,
+    cache_file: str = COMMON_WORDS_CACHE_FILE,
+) -> list[dict[str, str]]:
+    """
+    Load the 1000-most-common Finnish words list, using a local cache file.
+    This scrapes ONLY ONCE: if the cache file exists, it is always used.
+    Delete the cache file to force a re-scrape.
+    """
+    _, cached_words = _load_cached_common_words(cache_file)
+    if cached_words:
+        return cached_words
+
+    try:
+        print(f"Fetching common Finnish words from: {url}")
+        words = scrape_common_finnish_words(url)
+        payload = {
+            "fetched_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "url": url,
+            "words": words,
+        }
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"Cached {len(words)} words to '{cache_file}'.")
+        return words
+    except Exception as e:
+        print(f"❌ Failed to fetch common words list from {url}: {e}")
+        raise
 
 def setup_gemini():
     """Initialize Gemini API"""
@@ -99,16 +269,123 @@ def get_existing_words(sheet):
         # Return an empty set if an error occurs
         return set() 
 
-def generate_finnish_vocabulary(model, existing_words, count=10):
+
+def pick_new_words_from_common_list(
+    common_words: list[dict[str, str]], existing_words: set[str], count: int
+) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    for item in common_words:
+        finnish_word = str(item.get("finnish_word", "")).strip()
+        english_translation = str(item.get("english_translation", "")).strip()
+        if not finnish_word or not english_translation:
+            continue
+        if finnish_word.lower() in existing_words:
+            continue
+        candidates.append({"finnish_word": finnish_word, "english_translation": english_translation})
+
+    if len(candidates) < count:
+        raise RuntimeError(
+            f"Not enough new words left in the common-word list. "
+            f"Need {count}, but only found {len(candidates)} that are not in the sheet."
+        )
+
+    selected = random.sample(candidates, count)
+    for item in selected:
+        existing_words.add(item["finnish_word"].strip().lower())
+    return selected
+
+
+def _normalize_level(level_raw: str) -> str:
+    val = (level_raw or "").strip().upper()
+    if val in {"A1", "A2", "B1"}:
+        return val
+    for candidate in ("A1", "A2", "B1"):
+        if candidate in val:
+            return candidate
+    return ""
+
+
+def enrich_vocabulary_details(model, words: list[dict[str, str]]) -> list[dict[str, str]]:
+    """
+    Given [{finnish_word, english_translation}], ask Gemini to add:
+    category, level, example_finnish, example_english.
+    Runs in batches to avoid huge prompts.
+    """
+    enriched: list[dict[str, str]] = []
+
+    for i in range(0, len(words), max(1, ENRICH_BATCH_SIZE)):
+        chunk = words[i : i + max(1, ENRICH_BATCH_SIZE)]
+        input_json = json.dumps(chunk, ensure_ascii=False)
+
+        prompt = f"""
+You are a Finnish teacher. For each vocabulary item provided, add learning metadata.
+
+INPUT (JSON array):
+{input_json}
+
+For EACH item, output a JSON array of objects with EXACTLY these keys:
+- finnish_word
+- english_translation
+- category (noun, verb, adjective, adverb, pronoun, preposition, conjunction, phrase, abbreviation, etc.)
+- level (A1, A2, or B1 only)
+- example_finnish (one short, natural Finnish sentence using the word; the word may be inflected if needed)
+- example_english (English translation of the example sentence)
+
+Rules:
+- Keep finnish_word and english_translation exactly as in the input.
+- No Markdown, no commentary. Output ONLY the raw JSON array.
+""".strip()
+
+        response = model.generate_content(prompt)
+        data = _json_loads_loose(getattr(response, "text", "") or "")
+        if not isinstance(data, list):
+            raise RuntimeError("Gemini enrichment did not return a JSON array.")
+
+        by_word: dict[str, dict[str, Any]] = {}
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            fi = str(item.get("finnish_word", "")).strip()
+            if not fi:
+                continue
+            by_word[fi.lower()] = item
+
+        for original in chunk:
+            fi_key = original["finnish_word"].strip().lower()
+            item = by_word.get(fi_key, {})
+            enriched_item = {
+                "finnish_word": original["finnish_word"],
+                "english_translation": original["english_translation"],
+                "category": str(item.get("category", "")).strip(),
+                "level": _normalize_level(str(item.get("level", ""))),
+                "example_finnish": str(item.get("example_finnish", "")).strip(),
+                "example_english": str(item.get("example_english", "")).strip(),
+            }
+            enriched.append(enriched_item)
+
+    return enriched
+
+
+def generate_finnish_vocabulary_from_common_words(model, existing_words, count=10):
+    """
+    Select random words from the "1000 most common Finnish words" list,
+    skipping words already in the Google Sheet, then enrich with Gemini.
+    """
+    common_words = get_common_finnish_words()
+    selected = pick_new_words_from_common_list(common_words, existing_words, count)
+    return enrich_vocabulary_details(model, selected)
+
+
+def generate_finnish_vocabulary_with_gemini(model, existing_words, count=10, max_attempts=8):
     """
     Generate random Finnish words using Gemini, filtering out existing ones.
-    Loops until the requested number of unique words is found.
+    Tries up to max_attempts to find the requested number of unique words.
     """
     new_vocabulary = []
     attempts = 0
     
     # Keep iterating until we have exactly the requested number of words
-    while len(new_vocabulary) < count:
+    while len(new_vocabulary) < count and attempts < max_attempts:
         needed = count - len(new_vocabulary)
         attempts += 1
         print(f"Generating {needed} more words (Attempt {attempts}, have {len(new_vocabulary)}/{count})...")
@@ -140,19 +417,10 @@ def generate_finnish_vocabulary(model, existing_words, count=10):
         
         try:
             response = model.generate_content(prompt)
-            text = response.text
-            
-            # Parse the JSON response
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0]
-            
-            batch_vocabulary = json.loads(text.strip())
+            batch_vocabulary = _json_loads_loose(getattr(response, "text", "") or "")
             
             if not isinstance(batch_vocabulary, list):
                 print("Model did not return a list. Retrying...")
-                attempts += 1
                 continue
 
             # POST-PROCESSING: Filter out duplicates and ensure data structure
@@ -170,14 +438,23 @@ def generate_finnish_vocabulary(model, existing_words, count=10):
                     print(f" ⚠️ Skipping duplicate word: {item['finnish_word']}")
         
         except Exception as e:
-            print(f"Error during generation attempt {attempts + 1}: {e}")
-        
-        attempts += 1
+            print(f"Error during generation attempt {attempts}: {e}")
 
     if len(new_vocabulary) < count:
-        print(f"⚠️ Warning: Only generated {len(new_vocabulary)} unique words out of {count} requested after {max_attempts} attempts.")
+        raise RuntimeError(
+            f"Only generated {len(new_vocabulary)} unique words out of {count} "
+            f"after {max_attempts} attempts."
+        )
 
     return new_vocabulary
+
+
+def generate_finnish_vocabulary(model, existing_words, count=10):
+    if VOCAB_SOURCE == "gemini":
+        return generate_finnish_vocabulary_with_gemini(model, existing_words, count=count)
+    if VOCAB_SOURCE == "common1000":
+        return generate_finnish_vocabulary_from_common_words(model, existing_words, count=count)
+    raise ValueError(f"Unknown VOCAB_SOURCE='{VOCAB_SOURCE}'. Use 'common1000' or 'gemini'.")
 
 def generate_video_prompt(model, word_data):
     """Generate a video generation prompt for the vocabulary word"""
@@ -333,7 +610,9 @@ def generate_video_caption(model, word_data):
     """Generate an engaging TikTok caption for the vocabulary word."""
     finnish_word = word_data['finnish_word']
     english_translation = word_data['english_translation']
-    level = word_data['level']
+    level = str(word_data.get('level') or "B1").strip().upper()
+    if level not in {"A1", "A2", "B1"}:
+        level = "B1"
     
     prompt = f"""
     You are a TikTok content strategist. 

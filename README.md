@@ -4,7 +4,7 @@ An automated tool that generates Finnish vocabulary words with AI-powered video 
 
 ## Overview
 
-This project uses Google's Gemini AI to generate daily Finnish vocabulary words (A1-B1 level) and automatically creates:
+This project uses a scraped list of the 1000 most common Finnish words (with local caching) and Google's Gemini AI to generate learning metadata and automatically create:
 - **Video generation prompts** for 8-second TikTok-style educational videos
 - **Engaging TikTok captions** with examples, tips, and hashtags
 - **Organized Google Sheets** storage with all vocabulary data
@@ -13,7 +13,7 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
 
 ## Features
 
-- 🎯 **Smart Vocabulary Generation**: Generates random Finnish words at A1-B1 levels with English translations
+- 🎯 **Reliable Vocabulary Source**: Randomly picks from the 1000 most common Finnish words and skips words already in your sheet
 - 🎬 **Video Prompt Creation**: AI-generated scene descriptions for visual learning content
 - 📱 **TikTok-Ready Captions**: Engaging social media captions with examples and cultural tips
 - 📊 **Google Sheets Integration**: Automatic storage and organization of all vocabulary data
@@ -66,6 +66,7 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
    GEMINI_MODEL=gemini-2.5-flash
    GOOGLE_SHEETS_CREDENTIALS_FILE=credentials.json
    SPREADSHEET_NAME=Daily Vocabulary
+   VOCAB_SOURCE=common1000
    VOCAB_COUNT=10
    ```
 
@@ -79,7 +80,12 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
 | `GEMINI_MODEL` | Gemini model to use | `gemini-2.5-flash` |
 | `GOOGLE_SHEETS_CREDENTIALS_FILE` | Path to service account credentials | `credentials.json` |
 | `SPREADSHEET_NAME` | Name of the Google Sheets spreadsheet | `Daily Vocabulary` |
+| `VOCAB_SOURCE` | Word list source (`common1000` or `gemini`) | `common1000` |
 | `VOCAB_COUNT` | Number of words to generate per run | `10` |
+| `COMMON_WORDS_URL` | Source URL for the common-words list | `https://1000mostcommonwords.com/1000-most-common-finnish-words/` |
+| `COMMON_WORDS_CACHE_FILE` | Local cache file for the scraped list | `finnish_common_1000.json` |
+| *(no TTL)* | The common-words list is scraped only if the cache file is missing (delete the cache file to re-scrape) | — |
+| `ENRICH_BATCH_SIZE` | How many words Gemini enriches per request | `25` |
 
 ## Usage
 
@@ -92,7 +98,7 @@ python generate_daily_vocab_video_prompts.py
 The script will:
 1. Connect to Google Sheets (creates spreadsheet if it doesn't exist)
 2. Check for existing words to prevent duplicates
-3. Generate new Finnish vocabulary words with translations
+3. Pick new Finnish words (default: from the 1000 common-words list; optional: Gemini generation)
 4. Create video prompts for each word
 5. Generate TikTok captions with examples and tips
 6. Save everything to Google Sheets
