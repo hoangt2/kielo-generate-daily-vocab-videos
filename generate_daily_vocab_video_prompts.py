@@ -512,6 +512,7 @@ def generate_video_prompt(model, word_data):
     
     **Audio:**
     [Describe what characters say in Finnish with Helsinki region accent, matching their actions]
+    **IMPORTANT: Do NOT include any background music. Only include contextual sound effects if relevant to the scene (e.g., a doorbell, phone ringing, kitchen sounds, birds chirping).**
     """
     
     response = model.generate_content(prompt)
@@ -550,6 +551,7 @@ def check_and_fix_finnish_speech(model, video_prompt, word_data, max_iterations=
         2. **Naturalness** (Does it sound like how a native Finnish speaker would actually talk in daily conversation?)
         3. **Appropriate use of the target word** in context
         4. **Helsinki region accent compatibility** (avoid overly formal or archaic expressions)
+        5. **No direct literal translations from English** (e.g., "what a beautiful house" should not be translated directly as "Mikä kaunis talo", but rather using an authentic Finnish expression).
         
         **When providing corrections:**
         - Keep the ENTIRE original text structure (illustration style, scene description, audio sections)
