@@ -4,7 +4,7 @@ An automated tool that generates Finnish vocabulary words with AI-powered video 
 
 ## Overview
 
-This project uses a scraped list of the 1000 most common Finnish words (with local caching) and Google's Gemini AI to generate learning metadata and automatically create:
+This project uses a scraped list of the 1000 most common Finnish words (with local caching) and an LLM (OpenAI or Gemini) to generate learning metadata and automatically create:
 - **Video generation prompts** for 8-second TikTok-style educational videos
 - **Engaging TikTok captions** with examples, tips, and hashtags
 - **Organized Google Sheets** storage with all vocabulary data
@@ -25,7 +25,7 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
 
 - Python 3.7+
 - Google Cloud Project with Sheets API enabled
-- Google Gemini API key
+- **OpenAI API key** (default provider) or **Google Gemini API key**
 - Service account credentials for Google Sheets
 
 ## Installation
@@ -62,8 +62,18 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
    
    Create a `.env` file in the project root:
    ```env
+   # LLM Provider: "openai" (default) or "gemini"
+   LLM_PROVIDER=openai
+
+   # OpenAI (default)
+   OPENAI_API_KEY=your_openai_api_key_here
+   OPENAI_MODEL=gpt-4o-mini
+
+   # Gemini (alternative)
    GEMINI_API_KEY=your_gemini_api_key_here
    GEMINI_MODEL=gemini-2.5-flash
+
+   # Google Sheets
    GOOGLE_SHEETS_CREDENTIALS_FILE=credentials.json
    SPREADSHEET_NAME=Daily Vocabulary
    VOCAB_SOURCE=common1000
@@ -76,7 +86,10 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GEMINI_API_KEY` | Your Google Gemini API key | *Required* |
+| `LLM_PROVIDER` | LLM provider to use (`openai` or `gemini`) | `openai` |
+| `OPENAI_API_KEY` | Your OpenAI API key | *Required if provider is `openai`* |
+| `OPENAI_MODEL` | OpenAI model to use | `gpt-4o-mini` |
+| `GEMINI_API_KEY` | Your Google Gemini API key | *Required if provider is `gemini`* |
 | `GEMINI_MODEL` | Gemini model to use | `gemini-2.5-flash` |
 | `GOOGLE_SHEETS_CREDENTIALS_FILE` | Path to service account credentials | `credentials.json` |
 | `SPREADSHEET_NAME` | Name of the Google Sheets spreadsheet | `Daily Vocabulary` |
@@ -85,7 +98,7 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
 | `COMMON_WORDS_URL` | Source URL for the common-words list | `https://1000mostcommonwords.com/1000-most-common-finnish-words/` |
 | `COMMON_WORDS_CACHE_FILE` | Local cache file for the scraped list | `finnish_common_1000.json` |
 | *(no TTL)* | The common-words list is scraped only if the cache file is missing (delete the cache file to re-scrape) | — |
-| `ENRICH_BATCH_SIZE` | How many words Gemini enriches per request | `25` |
+| `ENRICH_BATCH_SIZE` | How many words the LLM enriches per request | `25` |
 
 ## Usage
 
@@ -96,12 +109,13 @@ python generate_daily_vocab_video_prompts.py
 ```
 
 The script will:
-1. Connect to Google Sheets (creates spreadsheet if it doesn't exist)
-2. Check for existing words to prevent duplicates
-3. Pick new Finnish words (default: from the 1000 common-words list; optional: Gemini generation)
-4. Create video prompts for each word
-5. Generate TikTok captions with examples and tips
-6. Save everything to Google Sheets
+1. Initialize the configured LLM provider (OpenAI by default, or Gemini)
+2. Connect to Google Sheets (creates spreadsheet if it doesn't exist)
+3. Check for existing words to prevent duplicates
+4. Pick new Finnish words (default: from the 1000 common-words list; optional: LLM generation)
+5. Create video prompts for each word
+6. Generate TikTok captions with examples and tips
+7. Save everything to Google Sheets
 
 ## Google Sheets Structure
 
@@ -161,7 +175,8 @@ Finnish place endings change the meaning:
 generate_daily_vocab_videos/
 ├── generate_daily_vocab_video_prompts.py  # Main script
 ├── credentials.json                        # Google service account credentials
-├── .env                                    # Environment variables
+├── requirements.txt                        # Python dependencies
+├── .env                                    # Environment variables (LLM provider config)
 ├── .gitignore                             # Git ignore rules
 └── README.md                              # This file
 ```
@@ -176,6 +191,9 @@ The script checks existing words, but if you want to reset, you can delete rows 
 
 **API quota exceeded**  
 Reduce `VOCAB_COUNT` in `.env` or wait for quota reset.
+
+**Switching LLM providers**  
+Set `LLM_PROVIDER=gemini` in `.env` to use Gemini instead of OpenAI. Make sure the corresponding API key is set.
 
 ## License
 

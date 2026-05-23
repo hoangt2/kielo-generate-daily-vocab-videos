@@ -1,4 +1,5 @@
 import google.generativeai as genai
+from openai import OpenAI
 from google.oauth2.service_account import Credentials
 import gspread
 # 🛠️ CORRECTED IMPORTS: Removed set_text_format, set_data_validation, get_default_format
@@ -16,9 +17,11 @@ from bs4 import BeautifulSoup
 load_dotenv()
 
 # Configuration
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip().lower()  # openai | gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# Ensure GEMINI_MODEL is set or defaults to a good one
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") 
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GOOGLE_SHEETS_CREDENTIALS_FILE = os.getenv("GOOGLE_SHEETS_CREDENTIALS_FILE", "credentials.json")
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Daily Vocabulary")
 # Update column index since 'Starting Date' is removed and 'Date Added' is now column 1 ('A')
@@ -191,11 +194,48 @@ def get_common_finnish_words(
         print(f"❌ Failed to fetch common words list from {url}: {e}")
         raise
 
-def setup_gemini():
-    """Initialize Gemini API"""
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(GEMINI_MODEL)
-    return model
+class LLMResponse:
+    """Unified response object for both Gemini and OpenAI."""
+    def __init__(self, text: str):
+        self.text = text
+
+
+class LLMClient:
+    """
+    Unified wrapper around Gemini and OpenAI APIs.
+    Exposes a single `generate_content(prompt)` method that returns
+    an object with a `.text` attribute, so all existing call sites
+    work without modification.
+    """
+
+    def __init__(self, provider: str):
+        self.provider = provider
+        if provider == "gemini":
+            genai.configure(api_key=GEMINI_API_KEY)
+            self._gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+            print(f"Using Gemini model: {GEMINI_MODEL}")
+        elif provider == "openai":
+            self._openai_client = OpenAI(api_key=OPENAI_API_KEY)
+            print(f"Using OpenAI model: {OPENAI_MODEL}")
+        else:
+            raise ValueError(f"Unknown LLM_PROVIDER='{provider}'. Use 'openai' or 'gemini'.")
+
+    def generate_content(self, prompt: str) -> LLMResponse:
+        if self.provider == "gemini":
+            response = self._gemini_model.generate_content(prompt)
+            return LLMResponse(getattr(response, "text", "") or "")
+        else:  # openai
+            response = self._openai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.choices[0].message.content or ""
+            return LLMResponse(text)
+
+
+def setup_llm(provider: str = LLM_PROVIDER) -> LLMClient:
+    """Initialize the configured LLM provider (OpenAI or Gemini)."""
+    return LLMClient(provider)
 
 def setup_google_sheets():
     """
@@ -337,7 +377,7 @@ Rules:
 """.strip()
 
         response = model.generate_content(prompt)
-        data = _json_loads_loose(getattr(response, "text", "") or "")
+        data = _json_loads_loose(response.text)
         if not isinstance(data, list):
             raise RuntimeError("Gemini enrichment did not return a JSON array.")
 
@@ -417,7 +457,7 @@ def generate_finnish_vocabulary_with_gemini(model, existing_words, count=10, max
         
         try:
             response = model.generate_content(prompt)
-            batch_vocabulary = _json_loads_loose(getattr(response, "text", "") or "")
+            batch_vocabulary = _json_loads_loose(response.text)
             
             if not isinstance(batch_vocabulary, list):
                 print("Model did not return a list. Retrying...")
@@ -505,9 +545,9 @@ def generate_video_prompt(model, word_data):
     REQUIRED FORMAT:
     
     **Illustration Style:**
-    Use a warm, modern flat-vector illustration style with soft pastel colors, clean lines, and simple but expressive facial features. Think of a style that could be used in educational flashcards or language-learning apps—playful yet clear, conveying both the action and the meaning.
+    Flat 2D vector animation, explainer video style. Soft pastel palette, solid colors, no gradients, friendly mood.
     
-    **Scene (8 seconds):**
+    **Scene (10 seconds):**
     [Describe the visual scene here in detail]
     
     **Audio:**
@@ -517,6 +557,7 @@ def generate_video_prompt(model, word_data):
     
     response = model.generate_content(prompt)
     return response.text.strip()
+
 
 def check_and_fix_finnish_speech(model, video_prompt, word_data, max_iterations=3):
     """Check and fix Finnish grammar and naturalness in the video prompt.
@@ -574,6 +615,7 @@ def check_and_fix_finnish_speech(model, video_prompt, word_data, max_iterations=
         try:
             response = model.generate_content(check_prompt)
             text = response.text
+
             
             if "```json" in text:
                 text = text.split("```json")[1].split("```")[0]
@@ -649,6 +691,7 @@ def generate_video_caption(model, word_data):
     return response.text.strip()
 
 
+
 def save_to_sheets(sheet, vocabulary_data):
     """Save vocabulary data to Google Sheets, using a single 'Date Added' column."""
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -720,12 +763,15 @@ def main():
             print(f"Error reading backup file: {e}. Proceeding with normal generation.")
 
     # --- 2. Normal Generation Flow ---
-    if not GEMINI_API_KEY:
+    if LLM_PROVIDER == "openai" and not OPENAI_API_KEY:
+        print("Error: OPENAI_API_KEY is not set in environment variables/dotenv file.")
+        return
+    if LLM_PROVIDER == "gemini" and not GEMINI_API_KEY:
         print("Error: GEMINI_API_KEY is not set in environment variables/dotenv file.")
         return
         
-    print("Initializing Gemini...")
-    model = setup_gemini()
+    print(f"Initializing LLM provider: {LLM_PROVIDER}...")
+    model = setup_llm()
     
     print("Connecting to Google Sheets...")
     sheet = setup_google_sheets()
