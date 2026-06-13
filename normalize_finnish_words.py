@@ -6,7 +6,7 @@ from typing import Any
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-3.5-flash"))
 
 def _strip_markdown_code_fences(text: str) -> str:
     text = text.strip()

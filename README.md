@@ -90,7 +90,7 @@ Perfect for content creators, language teachers, or anyone building Finnish lang
 | `OPENAI_API_KEY` | Your OpenAI API key | *Required if provider is `openai`* |
 | `OPENAI_MODEL` | OpenAI model to use | `gpt-4o-mini` |
 | `GEMINI_API_KEY` | Your Google Gemini API key | *Required if provider is `gemini`* |
-| `GEMINI_MODEL` | Gemini model to use | `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Gemini model to use | `gemini-3.5-flash` |
 | `GOOGLE_SHEETS_CREDENTIALS_FILE` | Path to service account credentials | `credentials.json` |
 | `SPREADSHEET_NAME` | Name of the Google Sheets spreadsheet | `Daily Vocabulary` |
 | `VOCAB_SOURCE` | Word list source (`common1000` or `gemini`) | `common1000` |

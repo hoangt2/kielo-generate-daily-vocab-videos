@@ -545,7 +545,7 @@ def generate_video_prompt(model, word_data):
     REQUIRED FORMAT:
     
     **Illustration Style:**
-    Flat 2D vector animation, explainer video style. Soft pastel palette, solid colors, no gradients, friendly mood.
+    Flat 2D vector animation, explainer video style. Solid colors, no gradients, friendly mood.
     
     **Scene (10 seconds):**
     [Describe the visual scene here in detail]
