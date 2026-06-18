@@ -545,7 +545,7 @@ def generate_video_prompt(model, word_data):
     REQUIRED FORMAT:
     
     **Illustration Style:**
-    Flat 2D vector animation, explainer video style. Solid colors, no gradients, friendly mood.
+    A playful, modern minimalist doodle-style 2D illustration. The video must feature bold, thick, uniform black outlines with flat, naturalistic colors. Do not use gradients, 3D rendering, or complex shading. Characters should have friendly, exaggerated proportions with simple, clean features. Any inanimate objects in the scene must remain strictly as normal objects without any faces, smiles, or anthropomorphic details. The composition should be clean and uncluttered, set against a solid, soft pastel background. High quality vector-art style. Smooth 2D frame-by-frame animation style, subtle looping motion, flat lighting.
     
     **Scene (10 seconds):**
     [Describe the visual scene here in detail]
