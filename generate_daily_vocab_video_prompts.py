@@ -498,9 +498,75 @@ def generate_finnish_vocabulary(model, existing_words, count=10):
 
 def generate_video_prompt(model, word_data):
     """Generate a video generation prompt for the vocabulary word"""
+    level = str(word_data.get('level') or 'A1').strip().upper()
+    if level not in {'A1', 'A2', 'B1'}:
+        level = 'A1'
+    
+    # Level-specific speech complexity guidelines
+    level_guidelines = {
+        'A1': """
+    **SPEECH COMPLEXITY: A1 (Beginner)**
+    - Use ONLY basic, everyday vocabulary that an A1 student would know
+    - Keep sentences SHORT and SIMPLE (subject + verb + object structure)
+    - Use 1 to 2 simple sentences maximum
+    - Use present tense only. Avoid conditional, passive, or complex tenses
+    - Avoid idiomatic expressions, slang, or complex word forms
+    - Use common words like: olla, mennä, tulla, haluta, pitää, katsoa, syödä, juoda
+    - Characters can use colloquial "mä" instead of "minä" but keep vocabulary basic
+    
+    ✅ A1 GOOD speech examples:
+       - For "nainen" (woman): "Hei, kuka tuo nainen on? Mä haluun tietää!"
+         (Hey, who is that woman? I want to know!)
+       - For "koira" (dog): "Oi kato, toi koira on niin söpö! Mä haluun silittää sitä."
+         (Oh look, that dog is so cute! I want to pet it.)
+       - For "syödä" (to eat): "Mmm, mä haluun syödä jäätelöä! Se on niin hyvää."
+         (Mmm, I want to eat ice cream! It's so good.)
+       - For "suuri" (big): "Vau, toi talo on tosi suuri! Asuko siellä joku?"
+         (Wow, that house is really big! Does someone live there?)
+    
+    ❌ A1 BAD (too complex):
+       - "Tuolla menee nainen punaisessa takissa. Se kävelee ihan määrätietoisesti, ihan kuin sillä ois jo kiire johonkin."
+       - Reason: "määrätietoisesti", "ihan kuin sillä ois", "kiire johonkin" are WAY above A1 level
+""",
+        'A2': """
+    **SPEECH COMPLEXITY: A2 (Elementary)**
+    - Use everyday vocabulary with some slightly more expressive words
+    - Use 2 to 3 sentences
+    - Can use past tense and simple future ("mä meen", "mä menin")
+    - Can include simple opinions and feelings
+    - Avoid complex subordinate clauses, conditional mood, or rare vocabulary
+    - Characters can sound casual and natural but keep it accessible
+    
+    ✅ A2 GOOD speech examples:
+       - For "kirja" (book): "Mä luin tän kirjan eilen! Se oli tosi hyvä. Sä voisit lukee sen kans."
+         (I read this book yesterday! It was really good. You could read it too.)
+       - For "juosta" (to run): "Mun pitää juosta bussille! Se lähtee kohta. Mä en haluu myöhästyy!"
+         (I have to run for the bus! It's leaving soon. I don't want to be late!)
+       - For "kaunis" (beautiful): "Kato miten kaunis päivä! Mennään ulos kävelylle, mä en haluu jäädä sisälle."
+         (Look what a beautiful day! Let's go for a walk, I don't want to stay inside.)
+""",
+        'B1': """
+    **SPEECH COMPLEXITY: B1 (Intermediate)**
+    - Can use richer, more expressive vocabulary and natural colloquial Finnish
+    - Use 2 to 4 sentences
+    - Can include opinions, reactions, conditional mood, and some idiomatic expressions
+    - Speech should feel like a natural slice-of-life moment
+    - Can use more complex sentence structures but keep it conversational
+    
+    ✅ B1 GOOD speech examples:
+       - For "onnellinen" (happy): "Mä oon tänään niin onnellinen! Sain just kuulla et pääsin sisään yliopistoon. Nyt pitää soittaa äidille ja kertoo hyvät uutiset!"
+         (I'm so happy today! I just heard I got into university. Now I have to call mom and tell her the good news!)
+       - For "kylmä" (cold): "Voi ei, onpa täällä kylmä tänään. Oispa mulla paksumpi takki... No, kahvi ainakin lämmittää."
+         (Oh no, it's so cold today. Wish I had a thicker jacket... Well, at least coffee warms me up.)
+"""
+    }
+    
+    speech_guidelines = level_guidelines.get(level, level_guidelines['A1'])
+    
     prompt = f"""
     You are a creative TikTok scriptwriter. Your task is to generate a video prompt for Finnish word of the day. 
     The word is: {word_data['finnish_word']} which means "{word_data['english_translation']}". 
+    The word's CEFR level is: **{level}**
     
     IMPORTANT - Choose the BEST illustration approach to maximize visual impact:
     
@@ -540,18 +606,33 @@ def generate_video_prompt(model, word_data):
     - Strictly no text or subtitles included in the video
     - **Prioritize visual descriptions whenever possible** - they create better, more engaging content!
     
+    🗣️ **CRITICAL - SPEECH/DIALOGUE REQUIREMENTS:**
+    The speech should sound like a real person talking to a friend, thinking aloud, or reacting to something — NOT like a dictionary definition.
+    
+    ❌ **BANNED speech patterns** (too simple / boring):
+       - "Tämä on [word]." (This is [word].)
+       - Just saying the word alone with no context
+       - "Katso, [word]!" (Look, [word]!)
+       - "Minä pidän [word]." as a standalone sentence with nothing else
+       - Any single short sentence that merely labels or points at the object/action
+    
+    {speech_guidelines}
+    
+    ⚠️ **The speech MUST match the {level} level.** Do NOT use vocabulary or grammar structures above {level} level. 
+    A Finnish {level} learner watching this video should be able to understand most of the spoken dialogue.
+    
     **YOUR RESPONSE MUST START WITH THE ILLUSTRATION STYLE DESCRIPTION**, followed by the scene details and audio.
     
     REQUIRED FORMAT:
     
     **Illustration Style:**
-    A playful, modern minimalist doodle-style 2D illustration. The video must feature bold, thick, uniform black outlines with flat, naturalistic colors. Do not use gradients, 3D rendering, or complex shading. Characters should have friendly, exaggerated proportions with simple, clean features. Any inanimate objects in the scene must remain strictly as normal objects without any faces, smiles, or anthropomorphic details. The composition should be clean and uncluttered, set against a solid, soft pastel background. High quality vector-art style. Smooth 2D frame-by-frame animation style, subtle looping motion, flat lighting.
+    A playful, modern minimalist doodle-style 2D illustration. The video must feature bold, thick, uniform black outlines with flat, naturalistic colors. Do not use gradients, 3D rendering, or complex shading. Characters should have friendly, exaggerated proportions with simple, clean features. Any inanimate objects in the scene must remain strictly as normal objects without any faces, smiles, or anthropomorphic details. The composition should be clean and uncluttered. High quality vector-art style. Smooth 2D frame-by-frame animation style, subtle looping motion, flat lighting.
     
     **Scene (10 seconds):**
     [Describe the visual scene here in detail]
     
     **Audio:**
-    [Describe what characters say in Finnish with Helsinki region accent, matching their actions]
+    [Describe what characters say in Finnish with Helsinki region accent, matching their actions. The speech MUST be at {level} level complexity!]
     **IMPORTANT: Do NOT include any background music. Only include contextual sound effects if relevant to the scene (e.g., a doorbell, phone ringing, kitchen sounds, birds chirping).**
     """
     
